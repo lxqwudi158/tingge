@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: tingge
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: NO_NCM
+        value: "1"
