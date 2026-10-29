@@ -2344,7 +2344,7 @@ function renderList() {
     const faved = isFav(s);
     const locked = s.locked || (mode === 'fav' && favLocked.has(songKey(s)));
     const right = locked
-      ? `<span class="vip-tag">🔒 VIP · 去后端换链</span>
+      ? `<span class="vip-tag">VIP</span>
          <button class="alt-btn" data-alt="${i}" title="此歌版权受限，可能无法播放">🔒</button>`
       : `<div class="song-dur">${esc(s.tag || '完整')} ${fmt(s.dur)}</div>`;
     return `
