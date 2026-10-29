@@ -482,14 +482,15 @@ async function buildHotPool() {
   const playable = list.filter(s => !s.locked).length;
   const vip = list.length - playable;
 
-  // 关键优化：VIP 歌排后面，但不丢弃 —— 让可播歌永远排在最前
-  const playableList = list.filter(s => !s.locked);
-  const lockedList = list.filter(s => s.locked);
-  const ordered = [...playableList, ...lockedList];
+  // 排序：VIP 歌排前面（VIP·换源 → VIP → 完整），和分类页保持一致
+  const ordered = [
+    ...list.filter(s => s.trial),
+    ...list.filter(s => s.locked && !s.trial),
+    ...list.filter(s => !s.trial && !s.locked)
+  ];
 
   console.log('热门歌池构建完成：' + CHARTS.length + ' 个榜单，候选 ' + tracks.length +
-    ' 首（补详情 ' + missingIds.length + '），可播 ' + playable + ' 首在前，' +
-    'VIP/版权 ' + vip + ' 首在后，耗时 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+    ' 首（补详情 ' + missingIds.length + '），VIP ' + vip + ' 首在前，可播 ' + playable + ' 首在后，耗时 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
   return ordered;
 }
 
