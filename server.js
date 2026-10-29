@@ -265,15 +265,37 @@ function toHttps(u) {
   return u ? u.replace(/^http:\/\//, 'https://') : '';
 }
 
+let lastSearchErr = '';
+
+/** 网易云搜索：云端机房 IP 偶尔会被 search/get/web 拒绝，按顺序试多个入口 */
+async function wySearchRaw(kw) {
+  const q = encodeURIComponent(kw);
+  const tries = [
+    () => wyGet('https://music.163.com/api/search/get/web?s=' + q + '&type=1&limit=50&offset=0'),
+    () => fetch('https://music.163.com/api/cloudsearch/pc', {
+      method: 'POST',
+      headers: { ...HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 's=' + q + '&type=1&limit=50&offset=0',
+      signal: AbortSignal.timeout(10000)
+    }).then(r => r.json()),
+    () => wyGet('https://music.163.com/api/search/get?s=' + q + '&type=1&limit=50&offset=0')
+  ];
+  for (let i = 0; i < tries.length; i++) {
+    try {
+      const d = await tries[i]();
+      const songs = (d && d.result && d.result.songs) || [];
+      if (songs.length) { lastSearchErr = ''; return songs; }
+      lastSearchErr = 'try' + i + ' 空结果';
+    } catch (e) {
+      lastSearchErr = 'try' + i + ' ' + (e.message || e);
+    }
+  }
+  return [];
+}
+
 /** 搜索：网易云结果 + QQ 音乐补充（补周杰伦等网易云没有版权的原唱） */
 async function wySearch(kw) {
-  const [wySongs, vkList] = await Promise.all([
-    wyGet('https://music.163.com/api/search/get/web' +
-      '?s=' + encodeURIComponent(kw) + '&type=1&limit=50&offset=0')
-      .then(d => ((d.result && d.result.songs) || []))
-      .catch(() => []),
-    vkSearch(kw)
-  ]);
+  const [wySongs, vkList] = await Promise.all([wySearchRaw(kw), vkSearch(kw)]);
 
   const songs = wySongs.slice(0, 30);
   const urlMap = await fetchUrlMap(songs.map(s => s.id));
@@ -663,7 +685,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/wy/search') {
       const kw = (u.searchParams.get('kw') || '').trim();
       if (!kw) return sendJSON(res, { error: '缺少关键词' }, 400);
-      return sendJSON(res, { list: await wySearch(kw) });
+      const list = await wySearch(kw);
+      return sendJSON(res, u.searchParams.get('debug') === '1' ? { list, dbg: lastSearchErr } : { list });
     }
     if (p === '/api/wy/check') {
       const ids = (u.searchParams.get('ids') || '').split(',').map(s => s.trim()).filter(Boolean);
