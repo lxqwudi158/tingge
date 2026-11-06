@@ -952,6 +952,14 @@
   }
   #btn-lyric:hover:not(:disabled), #btn-float:hover:not(:disabled) { background: var(--brand); color: #fff; }
   #btn-float.on { background: var(--brand); color: #fff; }
+  /* 随机 / 循环开关：关闭时半透明，开启时高亮 */
+  .p-controls .p-toggle { opacity: .5; }
+  .p-controls .p-toggle.on {
+    opacity: 1;
+    background: rgba(79,124,255,.16);
+    color: var(--brand);
+    box-shadow: inset 0 0 0 1px rgba(79,124,255,.4);
+  }
 
   /* 轻提示 */
   .toast {
@@ -1453,6 +1461,7 @@
     #p-artist { font-size: 11px; }
     .p-controls { order: 2; gap: 0; }
     .p-controls button { font-size: 17px; padding: 4px 7px; }
+    .p-controls .p-toggle { font-size: 14px; padding: 4px 4px; }
     #btn-play { width: 42px; height: 42px; font-size: 16px; }
     .p-progress { order: 3; flex: 1 0 100%; min-width: 0; gap: 8px; }
     .p-progress span { width: 34px; font-size: 11px; }
@@ -1559,9 +1568,11 @@
     </div>
   </div>
   <div class="p-controls">
+    <button id="btn-shuffle" class="p-toggle" title="随机播放">🔀</button>
     <button id="btn-prev" title="上一首">⏮</button>
     <button id="btn-play" title="播放/暂停">▶</button>
     <button id="btn-next" title="下一首">⏭</button>
+    <button id="btn-repeat" class="p-toggle" title="单曲循环">🔁</button>
   </div>
   <div class="p-progress">
     <span id="time-cur">0:00</span>
@@ -1612,6 +1623,19 @@ const listHeadEl = $('list-head'), headTitleEl = $('head-title'), refreshBtn = $
 let mode = 'recommend'; // recommend=推荐，category=分类页面，search=搜索结果，fav=我的收藏
 let wyBatch = 0, wyTotalBatches = 1; // 网易云批次
 let catId = 0, catName = '', catBatch = 0, catTotalBatches = 1; // 当前分类页面
+
+/* 播放模式：随机播放 / 单曲循环（记在 localStorage，刷新后保持） */
+let shuffleOn = localStorage.getItem('tg_shuffle') === '1';
+let repeatOn = localStorage.getItem('tg_repeat') === '1';
+
+function syncPlayMode() {
+  $('btn-shuffle').classList.toggle('on', shuffleOn);
+  $('btn-repeat').classList.toggle('on', repeatOn);
+  $('btn-shuffle').title = shuffleOn ? '随机播放（已开启）' : '随机播放';
+  $('btn-repeat').title = repeatOn ? '单曲循环（已开启）' : '单曲循环';
+  audio.loop = repeatOn; // 开启后播完自动重播当前这首
+}
+syncPlayMode();
 
 /* 分类页面（每个都是独立的一页榜单，可换批、可跳批） */
 /* 已实测：VIP限免榜(12344472377)在无登录态下 50 首全是 VIP，拿不到播放链；
@@ -2460,16 +2484,22 @@ function togglePlay() {
 
 function next(step = 1) {
   if (!songs.length) return;
+  let i = index;
+  if (shuffleOn && songs.length > 1) {
+    // 随机挑一首，尽量不和当前这首重复
+    for (let n = 0; n < 20 && i === index; n++) i = Math.floor(Math.random() * songs.length);
+  } else {
+    i = (i + step + songs.length) % songs.length;
+  }
   // 收藏模式下自动跳过当前 VIP 锁定的歌
   if (mode === 'fav') {
-    let i = index;
     for (let n = 0; n < songs.length; n++) {
-      i = (i + step + songs.length) % songs.length;
       if (!favLocked.has(songKey(songs[i]))) { play(i); return; }
+      i = shuffleOn ? Math.floor(Math.random() * songs.length) : (i + 1) % songs.length;
     }
     return;
   }
-  play((index + step + songs.length) % songs.length);
+  play(i);
 }
 
 /* ---------- 进度条 ---------- */
@@ -2574,6 +2604,18 @@ document.addEventListener('keydown', e => {
 $('btn-play').addEventListener('click', togglePlay);
 $('btn-prev').addEventListener('click', () => next(-1));
 $('btn-next').addEventListener('click', () => next(1));
+$('btn-shuffle').addEventListener('click', () => {
+  shuffleOn = !shuffleOn;
+  localStorage.setItem('tg_shuffle', shuffleOn ? '1' : '0');
+  syncPlayMode();
+  toast(shuffleOn ? '🔀 随机播放已开启' : '随机播放已关闭');
+});
+$('btn-repeat').addEventListener('click', () => {
+  repeatOn = !repeatOn;
+  localStorage.setItem('tg_repeat', repeatOn ? '1' : '0');
+  syncPlayMode();
+  toast(repeatOn ? '🔁 单曲循环已开启' : '单曲循环已关闭');
+});
 
 /* ---------- 主题 / 静音 / 视图 / 主视觉按钮 ---------- */
 $('btn-theme').addEventListener('click', () => {
