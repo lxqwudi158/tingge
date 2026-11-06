@@ -482,17 +482,61 @@ async function buildHotPool() {
   const playable = list.filter(s => !s.locked).length;
   const vip = list.length - playable;
 
-  // 排序：VIP 歌排前面（VIP·换源 → VIP → 完整），和分类页保持一致
-  // 每层内按日期做偏移轮换：同一天内顺序固定，换一天首页就是另一批歌，避免天天看同样的推荐
-  const ordered = [
-    ...rotateByDay(list.filter(s => s.trial), 'trial'),
-    ...rotateByDay(list.filter(s => s.locked && !s.trial), 'locked'),
-    ...rotateByDay(list.filter(s => !s.trial && !s.locked), 'free')
-  ];
+  // 排序：先按语种分池（中文 / 日语 / 英文），每种语种内部仍然 VIP 优先，
+  // 再按 5:3:2 的配比交错输出，保证每一页都能同时看到中文、日语、英文歌，
+  // 不会出现「连翻 20 页全是外语」的情况
+  // 各语种内部再按日期轮换：同一天内顺序固定，换一天就是另一批，避免天天看同样的推荐
+  const byLang = { zh: [], en: [], jp: [] };
+  list.forEach(s => byLang[langOf(s)].push(s));
+  const ordered = mixLanguages({
+    zh: orderByLang(byLang.zh, 'zh'),
+    en: orderByLang(byLang.en, 'en'),
+    jp: orderByLang(byLang.jp, 'jp')
+  });
 
   console.log('热门歌池构建完成：' + CHARTS.length + ' 个榜单，候选 ' + tracks.length +
-    ' 首（补详情 ' + missingIds.length + '），VIP ' + vip + ' 首在前，可播 ' + playable + ' 首在后，耗时 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+    ' 首（补详情 ' + missingIds.length + '），中文 ' + byLang.zh.length +
+    ' / 英文 ' + byLang.en.length + ' / 日语 ' + byLang.jp.length +
+    '，可播 ' + playable + ' 首，耗时 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
   return ordered;
+}
+
+/** 判断歌曲语种：有假名算日语；有汉字算中文；其余算英文（含韩语、泰语等拉丁/其它文字） */
+function langOf(s) {
+  const t = (s.name || '') + ' ' + (s.artist || '');
+  if (/[\u3040-\u309F\u30A0-\u30FF]/.test(t)) return 'jp';
+  if (/[\u3400-\u4DBF\u4E00-\u9FFF]/.test(t)) return 'zh';
+  return 'en';
+}
+
+/** 同一语种内：VIP 优先（VIP·换源 → VIP → 完整），每层再按日期轮换 */
+function orderByLang(arr, salt) {
+  return [
+    ...rotateByDay(arr.filter(s => s.trial), salt + '-trial'),
+    ...rotateByDay(arr.filter(s => s.locked && !s.trial), salt + '-locked'),
+    ...rotateByDay(arr.filter(s => !s.trial && !s.locked), salt + '-free')
+  ];
+}
+
+/** 按目标配比交错三种语种：中文 5 : 英文 3 : 日语 2；某语种用完后由其它语种自动补上 */
+function mixLanguages(groups) {
+  const target = { zh: 5, en: 3, jp: 2 };
+  const sum = target.zh + target.en + target.jp;
+  const idx = { zh: 0, en: 0, jp: 0 };
+  const total = groups.zh.length + groups.en.length + groups.jp.length;
+  const out = [];
+  while (out.length < total) {
+    let pick = null, best = -Infinity;
+    for (const k of ['zh', 'en', 'jp']) {
+      if (idx[k] >= groups[k].length) continue;
+      // 期望已出现多少首 vs 实际已出现多少首，缺得最多的先补，从而逼近 5:3:2
+      const score = target[k] / sum * out.length - idx[k];
+      if (score > best) { best = score; pick = k; }
+    }
+    if (!pick) break;
+    out.push(groups[pick][idx[pick]++]);
+  }
+  return out;
 }
 
 /** 按日期生成偏移量：让每天的推荐从不同位置开始，避免天天同一批歌 */
