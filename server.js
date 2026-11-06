@@ -483,15 +483,30 @@ async function buildHotPool() {
   const vip = list.length - playable;
 
   // 排序：VIP 歌排前面（VIP·换源 → VIP → 完整），和分类页保持一致
+  // 每层内按日期做偏移轮换：同一天内顺序固定，换一天首页就是另一批歌，避免天天看同样的推荐
   const ordered = [
-    ...list.filter(s => s.trial),
-    ...list.filter(s => s.locked && !s.trial),
-    ...list.filter(s => !s.trial && !s.locked)
+    ...rotateByDay(list.filter(s => s.trial), 'trial'),
+    ...rotateByDay(list.filter(s => s.locked && !s.trial), 'locked'),
+    ...rotateByDay(list.filter(s => !s.trial && !s.locked), 'free')
   ];
 
   console.log('热门歌池构建完成：' + CHARTS.length + ' 个榜单，候选 ' + tracks.length +
     ' 首（补详情 ' + missingIds.length + '），VIP ' + vip + ' 首在前，可播 ' + playable + ' 首在后，耗时 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
   return ordered;
+}
+
+/** 按日期生成偏移量：让每天的推荐从不同位置开始，避免天天同一批歌 */
+function dayOffset(len, salt) {
+  if (!len) return 0;
+  const s = todayKey() + '#' + salt;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h % len;
+}
+
+function rotateByDay(arr, salt) {
+  const off = dayOffset(arr.length, salt);
+  return off ? arr.slice(off).concat(arr.slice(0, off)) : arr;
 }
 
 /* 按天 + 1 小时过期：跨天一定重建，绝不再把昨天的歌池返回给页面 */
@@ -557,6 +572,7 @@ async function buildChartPool(c) {
   const list = groups.flat();
   // 分类页排序：VIP 优先（VIP·换源 → VIP → 完整）。
   // 换源接口能给 VIP 歌换到整曲，所以把它们顶到前面，每个分类第一页就能看到 VIP 歌
+  // 分类页保持榜单本身的排名顺序，不做按天轮换（否则热歌榜第 1 页就不是前 30 名了）
   const ordered = [
     ...list.filter(s => s.trial),
     ...list.filter(s => s.locked),
